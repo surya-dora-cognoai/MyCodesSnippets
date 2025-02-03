@@ -1,0 +1,123 @@
+PreProd CheckList For Campaign Migrations from 6.4 to 7
+
+CheckList For Migrations:-
+Check if there are any on Server Changes if Yes:
+Clear the Commit and then take the pull for the migrations 
+ 
+Instructions for post pull on server (branch name: v6.4-Prod-7-Campaign-migrate):
+
+
+Make sure to stop all the services such as gunicorn, nginx, daphne, schedulers, etc and stop all the cronjobs before proceeding
+sudo systemctl stop Service_name
+
+1.  Initial Check 
+		python manage.py check
+
+2. Install Below Dependencies: 
+ 		pip install django-model-utils==4.3.1
+ 		pip install SQLAlchemy==1.4.48
+  	pip install django-infinite-scroll-pagination
+
+3. Django Make Migrations & Migrate
+    	python manage.py makemigrations
+ 		python manage.py migrate
+ 		python manage.py collectstatic
+
+
+4. Run this scripts in shell to verify if everything is working as expected
+python manage.py shell ->
+from django.apps import apps
+
+for app in apps.get_app_configs():
+    for model in app.get_models():
+        model_name = model.__name__
+        try:
+            first_record = model.objects.first()
+        except Exception as e:
+            print(f"Error fetching data: {e}")
+If nothing prints in the shell means everything is working as expected
+
+5.Run VersionCompatibilityScripts for Dev Config, ChatBot, LiveChat & Campaign
+  	python manage.py shell <  VersionCompatibilityScripts/EasyChat/v7_0_dev.py
+ 	Functions to run:-
+  		update_campaign_meta_data
+  		update_exotel_whatsapp_webhook
+        		update_ameyo_whatsapp_webhook	
+        		update_whatsapp_service_provider 
+
+
+  	python manage.py shell <  VersionCompatibilityScripts/LiveChat/v7_0_dev.py
+ 	Functions to run:-
+  		Update_whatsapp_service_provider
+
+  	python manage.py shell <  VersionCompatibilityScripts/DeveloperConsoleApp/v7_0_dev.py
+
+  	VersionCompatibilityScripts/Campaign/v7_0_dev.py (Run in Nohup)
+ 	nohup python -u manage.py shell < 
+  		VersionCompatibilityScripts/Campaign/v7_0_dev.py > files/Campaign_v7_0_dev.log &
+
+
+6.Restart all the services such as nginx, gunicorn, nginx, daphne, schedulers at this point
+  	Command : sudo systemctl restart Service_name
+
+7.Setup Campaign Analytics & Auto-resume Schedulers (refer to UAT Services)
+For Campaign_Analytics:
+nano CampaignApp/scheduler.json
+{
+    "command": "cd ~/ThomasCook_PROD/EasyChat/ && . ../venv/bin/activate && python manage.py shell < CampaignApp/analytics_object_scheduler.py"
+}
+
+  For Autoresume Scheduler:
+Create a service file in /etc/systemd/system - scheduler-campaign-auto-resume-Thomascook.service
+  [Unit]
+Description = Scheduler deamon
+After = network.target
+
+[Service]
+Type = simple
+WorkingDirectory=/home/ubuntu/ThomasCook_PROD/EasyChat/CampaignApp/
+ExecStart = /home/ubuntu/ThomasCook_PROD/venv/bin/python auto_resume.py
+User = ubuntu
+Group = ubuntu
+Restart = on-failure
+SyslogIdentifier = /var/log/scheduler_camp.log
+RestartSec = 5
+TimeoutStartSec = infinity
+
+[Install]
+WantedBy = multi-user.target
+
+Then change auto_resume.json
+ {
+"command": "cd /home/ubuntu/ThomasCook_PROD/EasyChat/ && . ../venv/bin/activate && python manage.py shell < CampaignApp/auto_resume_campe_campaign.py"
+}
+Then change in auto_resume.py
+cmd = open("/home/ubuntu/ThomasCook_PROD/EasyChat/CampaignApp/auto_resume.json", "r")
+
+Then start the scheduler:
+sudo systemctl start scheduler-campaign-auto-resume-Thomascook.service
+
+
+8. Clear Cache (as the earlier Campaign Settings would have cached)
+
+Post Setup Steps :
+
+1 Update in AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY  CampaignConfig and DeveloperConsoleConfig
+
+  	AWS_ACCESS_KEY_ID = ""
+	 	AWS_SECRET_ACCESS_KEY = ""
+
+2. Clear the Cache
+ 		Open Shell and clear the cache:
+ 	python manage.py shell > from django.core.cache - cache.clear()
+  	Or Remove the cache directory:
+ 	rm -r /var/tmp/EasyChatCache/{EASYCHAT_DOMAIN} 
+
+3.Creds Setup
+ 	Open Campaign Setting file
+ 	Add Details and creds and then save the settings 
+  	Then reset the code if no custom is done:
+4.Final Test
+ 	Try and send a test campaign to yourself  and run The bot 
+
+
